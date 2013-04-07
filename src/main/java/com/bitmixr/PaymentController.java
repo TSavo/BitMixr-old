@@ -1,5 +1,7 @@
 package com.bitmixr;
 
+import java.math.BigInteger;
+
 import javax.persistence.EntityManager;
 import javax.persistence.PersistenceContext;
 
@@ -17,13 +19,13 @@ public class PaymentController {
 
 	@PersistenceContext
 	protected EntityManager entityManager;
-
+ 
 	@RequestMapping(method = RequestMethod.POST)
 	@Transactional
 	public @ResponseBody
 	Payment add(@RequestBody final Payment aPayment) {
-		aPayment.setSentAmount(0.0);
-		aPayment.setRecievedAmount(0.0);
+		aPayment.setSentAmount(BigInteger.ZERO);
+		aPayment.setRecievedAmount(BigInteger.ZERO);
 		entityManager.persist(aPayment);
 		return aPayment;
 	}
