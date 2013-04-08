@@ -6,6 +6,7 @@ CREATE TABLE Payment (
   destinationAddress varchar(255) DEFAULT NULL,
   recievedAmount decimal(19,2) DEFAULT NULL,
   sentAmount decimal(19,2) DEFAULT NULL,
+  spentAmount decimal(19,2) DEFAULT NULL,
   createdOn DATETIME NOT NULL,
   updatedOn DATETIME,
   visible bit(1) DEFAULT NULL,

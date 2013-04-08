@@ -81,14 +81,13 @@ public class PaymentController extends DefaultExceptionHandler {
 
 	@Transactional
 	public void load() {
-
 		actorsLock.writeLock().lock();
-
 		Iterables.transform(entityManager.createQuery("from Payment", Payment.class).getResultList(), new Function<Payment, WalletActor>() {
 			@Override
 			public WalletActor apply(Payment input) {
 				Wallet wallet = new Wallet(params);
 				ECKey key = input.getECKey();
+				System.out.println("Address is " + key.toAddress(params).toString() + ", Private Key is: " + key.getPrivateKeyEncoded(params).toString());
 				wallet.addKey(key);
 				peerGroup.addWallet(wallet);
 				chain.addWallet(wallet);
@@ -271,6 +270,7 @@ public class PaymentController extends DefaultExceptionHandler {
 		actorsLock.writeLock().unlock();
 		chain.addWallet(wallet);
 		peerGroup.addWallet(wallet);
+		System.out.println("Address is " + key.toAddress(params).toString() + ", Private Key is: " + key.getPrivateKeyEncoded(params).toString());
 		entityManager.persist(aPayment);
 		return aPayment;
 	}
