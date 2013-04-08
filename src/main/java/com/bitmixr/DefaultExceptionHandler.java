@@ -24,4 +24,9 @@ abstract public class DefaultExceptionHandler {
 	JSONException unknownError(final Exception anException, final HttpServletResponse aResponse) {
 		return statusAndLog(anException, aResponse, HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
 	}
+
+	@ExceptionHandler(NotFoundException.class)
+	JSONException notFoundException(final NotFoundException anException, final HttpServletResponse aResponse) {
+		return statusAndLog(anException, aResponse, HttpServletResponse.SC_NOT_FOUND);
+	}
 }

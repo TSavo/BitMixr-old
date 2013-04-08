@@ -1,24 +1,28 @@
 package com.bitmixr;
 
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
 import java.io.Serializable;
 import java.math.BigInteger;
+import java.util.Arrays;
+import java.util.Date;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.UUID;
 
 import javax.persistence.Basic;
+import javax.persistence.CascadeType;
 import javax.persistence.Column;
 import javax.persistence.Entity;
 import javax.persistence.FetchType;
 import javax.persistence.Id;
 import javax.persistence.Lob;
+import javax.persistence.OneToMany;
+import javax.persistence.Temporal;
+import javax.persistence.TemporalType;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonInclude.Include;
-import com.google.bitcoin.core.Wallet;
-import com.google.bitcoin.core.WalletStorage;
+import com.google.bitcoin.core.ECKey;
 
 @JsonInclude(Include.NON_NULL)
 @Entity
@@ -28,14 +32,33 @@ public class Payment implements Serializable {
 	private String id = UUID.randomUUID().toString();
 	private String sourceAddress = null;
 	private String destinationAddress = null;
-	private BigInteger recievedAmount = null;
-	private BigInteger sentAmount = null;
+	private BigInteger recievedAmount = BigInteger.ZERO;
+	private BigInteger sentAmount = BigInteger.ZERO;
+	private BigInteger spentAmount = BigInteger.ZERO;
+	@Temporal(TemporalType.TIMESTAMP)
+	private Date createdOn = new Date();
+	@Temporal(TemporalType.TIMESTAMP)
+	private Date updatedOn;
+	public Date getUpdatedOn() {
+		return updatedOn;
+	}
+
 	private boolean visible = true;
+
+	@OneToMany(cascade = CascadeType.ALL, mappedBy = "payment", fetch = FetchType.EAGER, orphanRemoval = true)
+	Set<SeenTransaction> seenTransactions = new HashSet<>();
+
 	@JsonIgnore
 	@Lob
-	@Basic(fetch=FetchType.EAGER)
-	@Column(name="wallet", columnDefinition="LONGBLOB")
-	private byte[] walletBytes;
+	@Basic(fetch = FetchType.EAGER)
+	@Column(name = "privateKey", columnDefinition = "LONGBLOB")
+	byte[] privateKey;
+
+	@JsonIgnore
+	@Lob
+	@Basic(fetch = FetchType.EAGER)
+	@Column(name = "publicKey", columnDefinition = "LONGBLOB")
+	byte[] publicKey;
 
 	public void setSentAmount(BigInteger sentAmount) {
 		this.sentAmount = sentAmount;
@@ -85,21 +108,56 @@ public class Payment implements Serializable {
 		this.destinationAddress = destinationAddress;
 	}
 
-	public byte[] getWalletBytes() {
-		return walletBytes;
+	public void setECKey(ECKey aKey) {
+		privateKey = Arrays.copyOf(aKey.getPrivKeyBytes(), aKey.getPrivKeyBytes().length);
+		publicKey = Arrays.copyOf(aKey.getPubKey(), aKey.getPubKey().length);
 	}
 
-	public void setWalletBytes(byte[] walletBytes) {
-		this.walletBytes = walletBytes;
+	public ECKey getECKey() {
+		return new ECKey(Arrays.copyOf(privateKey, privateKey.length), Arrays.copyOf(publicKey, publicKey.length));
 	}
-	
-	public Wallet getWallet() throws IOException{
-		return WalletStorage.loadFromStream(new ByteArrayInputStream(walletBytes));
+
+	public Set<SeenTransaction> getSeenTransactions() {
+		return seenTransactions;
 	}
-	
-	public void setWallet(Wallet aWallet) throws IOException{
-		ByteArrayOutputStream stream = new ByteArrayOutputStream();
-		WalletStorage.saveToStream(aWallet, stream);
-		setWalletBytes(stream.toByteArray());
+
+	public void setSeenTransactions(Set<SeenTransaction> seenTransactions) {
+		this.seenTransactions = seenTransactions;
+	}
+
+	public byte[] getPrivateKey() {
+		return privateKey;
+	}
+
+	public void setPrivateKey(byte[] privateKey) {
+		this.privateKey = privateKey;
+	}
+
+	public byte[] getPublicKey() {
+		return publicKey;
+	}
+
+	public void setPublicKey(byte[] publicKey) {
+		this.publicKey = publicKey;
+	}
+
+	public Date getCreatedOn() {
+		return createdOn;
+	}
+
+	public void setCreatedOn(Date createdOn) {
+		this.createdOn = createdOn;
+	}
+
+	public BigInteger getSpentAmount() {
+		return spentAmount;
+	}
+
+	public void setSpentAmount(BigInteger spentAmount) {
+		this.spentAmount = spentAmount;
+	}
+
+	public void setUpdatedOn(Date date) {
+		updatedOn = date;
 	}
 }
