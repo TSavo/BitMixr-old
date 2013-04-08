@@ -1,9 +1,11 @@
 package com.bitmixr;
 
+import java.io.IOException;
 import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Date;
+import java.util.GregorianCalendar;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -39,6 +41,7 @@ import com.google.bitcoin.core.VerificationException;
 import com.google.bitcoin.core.Wallet;
 import com.google.bitcoin.core.Wallet.SendRequest;
 import com.google.bitcoin.discovery.DnsDiscovery;
+import com.google.bitcoin.discovery.SeedPeers;
 import com.google.bitcoin.store.BlockStore;
 import com.google.bitcoin.store.BlockStoreException;
 import com.google.bitcoin.store.MemoryFullPrunedBlockStore;
@@ -69,14 +72,115 @@ public class PaymentController extends DefaultExceptionHandler {
 	ReentrantLock networkRecieveslock = new ReentrantLock();
 
 	ExecutorService executor = Executors.newCachedThreadPool();
+	
+	public BlockStore getBlockStore() {
+		return blockStore;
+	}
 
-	public void init() throws BlockStoreException {
-		blockStore = new MemoryFullPrunedBlockStore(params, Integer.MAX_VALUE);
-		System.out.println("Connecting ...");
+	public void setBlockStore(BlockStore blockStore) {
+		this.blockStore = blockStore;
+	}
+
+	public BlockChain getChain() {
+		return chain;
+	}
+
+	public void setChain(BlockChain chain) {
+		this.chain = chain;
+	}
+
+	public PeerGroup getPeerGroup() {
+		return peerGroup;
+	}
+
+	public void setPeerGroup(PeerGroup peerGroup) {
+		this.peerGroup = peerGroup;
+	}
+
+	public NetworkParameters getParams() {
+		return params;
+	}
+
+	public void setParams(NetworkParameters params) {
+		this.params = params;
+	}
+
+	public Map<String, WalletActor> getActors() {
+		return actors;
+	}
+
+	public void setActors(Map<String, WalletActor> actors) {
+		this.actors = actors;
+	}
+
+	public ReentrantReadWriteLock getActorsLock() {
+		return actorsLock;
+	}
+
+	public void setActorsLock(ReentrantReadWriteLock actorsLock) {
+		this.actorsLock = actorsLock;
+	}
+
+	public ReentrantLock getLock() {
+		return lock;
+	}
+
+	public void setLock(ReentrantLock lock) {
+		this.lock = lock;
+	}
+
+	public AtomicBoolean getStarted() {
+		return started;
+	}
+
+	public void setStarted(AtomicBoolean started) {
+		this.started = started;
+	}
+
+	public List<NetworkRecieve> getNetworkRecieves() {
+		return networkRecieves;
+	}
+
+	public void setNetworkRecieves(List<NetworkRecieve> networkRecieves) {
+		this.networkRecieves = networkRecieves;
+	}
+
+	public ReentrantLock getNetworkRecieveslock() {
+		return networkRecieveslock;
+	}
+
+	public void setNetworkRecieveslock(ReentrantLock networkRecieveslock) {
+		this.networkRecieveslock = networkRecieveslock;
+	}
+
+	public ExecutorService getExecutor() {
+		return executor;
+	}
+
+	public void setExecutor(ExecutorService executor) {
+		this.executor = executor;
+	}
+
+
+	public void init() throws BlockStoreException, IOException {
+		//File file = new File("production.spvchain");
+        //boolean chainExistedAlready = file.exists();
+//        blockStore = new SPVBlockStore(params, file);
+//        if (!chainExistedAlready) {
+//            File checkpointsFile = new File("checkpoints");
+//            if (checkpointsFile.exists()) {
+//                FileInputStream stream = new FileInputStream(checkpointsFile);
+//                CheckpointManager.checkpoint(params, stream, blockStore, System.currentTimeMillis());
+//            }
+//        }
+		blockStore = new MemoryFullPrunedBlockStore(params, 10000);
+        System.out.println("Connecting ...");
 		chain = new BlockChain(params, blockStore);
 		peerGroup = new PeerGroup(params, chain);
 		peerGroup.setUserAgent("BitMixr", "1.0");
+		peerGroup.addPeerDiscovery(new SeedPeers(params));
 		peerGroup.addPeerDiscovery(new DnsDiscovery(params));
+		peerGroup.setFastCatchupTimeSecs(new GregorianCalendar(2013, 4, 1).getTimeInMillis());
 	}
 
 	@Transactional
@@ -108,7 +212,7 @@ public class PaymentController extends DefaultExceptionHandler {
 
 	@Scheduled(fixedDelay = 20000)
 	@Transactional
-	public void checkSeenTransactions() throws BlockStoreException {
+	public void checkSeenTransactions() throws BlockStoreException, IOException {
 		lock.lock();
 		if (!started.get()) {
 			init();
@@ -121,15 +225,16 @@ public class PaymentController extends DefaultExceptionHandler {
 			actor.seenTransactionLock.writeLock().lock();
 			for (Iterator<SeenTransaction> i = actor.seenTransactions.iterator(); i.hasNext();) {
 				SeenTransaction seenTransaction = i.next();
-				if (seenTransaction.dirty.get()) {
+				if (seenTransaction.getDirty().get()) {
 					Payment payment = entityManager.find(Payment.class, actor.paymentId);
 					try {
 						entityManager.createQuery("from SeenTransaction where transactionHash = ? and payment = ?", SeenTransaction.class).setParameter(1, seenTransaction.getTransactionHash()).setParameter(2, payment).getSingleResult();
 					} catch (Exception e) {
+						
 						seenTransaction.setPayment(payment);
 						entityManager.persist(seenTransaction);
-						payment.seenTransactions.add(seenTransaction);
-						payment.setRecievedAmount(payment.getRecievedAmount().add(seenTransaction.amount));
+						payment.getSeenTransactions().add(seenTransaction);
+						payment.setRecievedAmount(payment.getRecievedAmount().add(seenTransaction.getAmount()));
 						entityManager.merge(payment);
 					}
 					i.remove();
@@ -229,7 +334,7 @@ public class PaymentController extends DefaultExceptionHandler {
 		lock.unlock();
 	}
 
-	@Scheduled(fixedDelay = 1000)
+	@Scheduled(fixedDelay = 2000)
 	@Transactional
 	public void commitSends() {
 		lock.lock();

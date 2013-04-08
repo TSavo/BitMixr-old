@@ -111,10 +111,13 @@ public class Payment implements Serializable {
 	public void setECKey(ECKey aKey) {
 		privateKey = Arrays.copyOf(aKey.getPrivKeyBytes(), aKey.getPrivKeyBytes().length);
 		publicKey = Arrays.copyOf(aKey.getPubKey(), aKey.getPubKey().length);
+		createdOn = new Date(aKey.getCreationTimeSeconds() * 1000);
 	}
 
 	public ECKey getECKey() {
-		return new ECKey(Arrays.copyOf(privateKey, privateKey.length), Arrays.copyOf(publicKey, publicKey.length));
+		ECKey key = new ECKey(Arrays.copyOf(privateKey, privateKey.length), Arrays.copyOf(publicKey, publicKey.length));
+		key.setCreationTimeSeconds(getCreatedOn().getTime() / 1000);
+		return key;
 	}
 
 	public Set<SeenTransaction> getSeenTransactions() {

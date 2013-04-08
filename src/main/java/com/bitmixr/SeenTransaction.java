@@ -30,6 +30,14 @@ public class SeenTransaction implements TransactionConfidence.Listener {
 	@Temporal(value = TemporalType.TIMESTAMP)
 	Date seenOn = new Date();
 	BigInteger amount;
+	public AtomicBoolean getDirty() {
+		return dirty;
+	}
+
+	public void setDirty(AtomicBoolean dirty) {
+		this.dirty = dirty;
+	}
+
 	transient AtomicBoolean dirty = new AtomicBoolean(false);
 
 	public String getId() {
@@ -96,7 +104,7 @@ public class SeenTransaction implements TransactionConfidence.Listener {
 	public void onConfidenceChanged(Transaction tx) {
 		if (tx.getConfidence().getConfidenceType() == TransactionConfidence.ConfidenceType.BUILDING) {
 			tx.getConfidence().removeEventListener(this);
-			dirty.set(true);
+			getDirty().set(true);
 		}
 	}
 
