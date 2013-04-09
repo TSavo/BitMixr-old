@@ -34,7 +34,29 @@ public class Payment implements Serializable {
 	private String destinationAddress = null;
 	private BigInteger recievedAmount = BigInteger.ZERO;
 	private BigInteger sentAmount = BigInteger.ZERO;
+	private BigInteger totalToSend;
+	@JsonIgnore
 	private BigInteger spentAmount = BigInteger.ZERO;
+	@JsonIgnore
+	private BigInteger receivedTip = BigInteger.ZERO;
+	@JsonIgnore
+	private BigInteger spentTip = BigInteger.ZERO;
+	public BigInteger getReceivedTip() {
+		return receivedTip;
+	}
+
+	public void setReceivedTip(BigInteger receivedTip) {
+		this.receivedTip = receivedTip;
+	}
+
+	public BigInteger getSpentTip() {
+		return spentTip;
+	}
+
+	public void setSpentTip(BigInteger spentTip) {
+		this.spentTip = spentTip;
+	}
+
 	@Temporal(TemporalType.TIMESTAMP)
 	private Date createdOn = new Date();
 	@Temporal(TemporalType.TIMESTAMP)
@@ -114,12 +136,13 @@ public class Payment implements Serializable {
 		createdOn = new Date(aKey.getCreationTimeSeconds() * 1000);
 	}
 
+	@JsonIgnore
 	public ECKey getECKey() {
 		ECKey key = new ECKey(Arrays.copyOf(privateKey, privateKey.length), Arrays.copyOf(publicKey, publicKey.length));
 		key.setCreationTimeSeconds(getCreatedOn().getTime() / 1000);
 		return key;
 	}
-
+	@JsonIgnore
 	public Set<SeenTransaction> getSeenTransactions() {
 		return seenTransactions;
 	}
@@ -127,7 +150,7 @@ public class Payment implements Serializable {
 	public void setSeenTransactions(Set<SeenTransaction> seenTransactions) {
 		this.seenTransactions = seenTransactions;
 	}
-
+	@JsonIgnore
 	public byte[] getPrivateKey() {
 		return privateKey;
 	}
@@ -135,7 +158,7 @@ public class Payment implements Serializable {
 	public void setPrivateKey(byte[] privateKey) {
 		this.privateKey = privateKey;
 	}
-
+	@JsonIgnore
 	public byte[] getPublicKey() {
 		return publicKey;
 	}
@@ -151,7 +174,7 @@ public class Payment implements Serializable {
 	public void setCreatedOn(Date createdOn) {
 		this.createdOn = createdOn;
 	}
-
+	@JsonIgnore
 	public BigInteger getSpentAmount() {
 		return spentAmount;
 	}

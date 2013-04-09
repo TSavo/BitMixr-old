@@ -1,6 +1,7 @@
 package com.bitmixr;
 
 import java.io.IOException;
+import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -21,6 +22,8 @@ import javassist.NotFoundException;
 import javax.persistence.EntityManager;
 import javax.persistence.PersistenceContext;
 
+import org.apache.log4j.Level;
+import org.apache.log4j.Logger;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Controller;
 import org.springframework.transaction.annotation.Transactional;
@@ -30,6 +33,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.ResponseBody;
 
+import com.cpn.apiomatic.rest.RestCommand;
 import com.google.bitcoin.core.Address;
 import com.google.bitcoin.core.AddressFormatException;
 import com.google.bitcoin.core.BlockChain;
@@ -40,13 +44,12 @@ import com.google.bitcoin.core.Transaction;
 import com.google.bitcoin.core.VerificationException;
 import com.google.bitcoin.core.Wallet;
 import com.google.bitcoin.core.Wallet.SendRequest;
+import com.google.bitcoin.core.WrongNetworkException;
 import com.google.bitcoin.discovery.DnsDiscovery;
 import com.google.bitcoin.discovery.SeedPeers;
 import com.google.bitcoin.store.BlockStore;
 import com.google.bitcoin.store.BlockStoreException;
 import com.google.bitcoin.store.MemoryFullPrunedBlockStore;
-import com.google.common.base.Function;
-import com.google.common.collect.Iterables;
 import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
 
@@ -68,11 +71,11 @@ public class PaymentController extends DefaultExceptionHandler {
 
 	AtomicBoolean started = new AtomicBoolean(false);
 
-	List<NetworkRecieve> networkRecieves = new ArrayList<>();
-	ReentrantLock networkRecieveslock = new ReentrantLock();
+	List<NetworkReceive> networkReceives = new ArrayList<>();
+	ReentrantLock networkReceivesLock = new ReentrantLock();
 
 	ExecutorService executor = Executors.newCachedThreadPool();
-	
+
 	public BlockStore getBlockStore() {
 		return blockStore;
 	}
@@ -137,20 +140,20 @@ public class PaymentController extends DefaultExceptionHandler {
 		this.started = started;
 	}
 
-	public List<NetworkRecieve> getNetworkRecieves() {
-		return networkRecieves;
+	public List<NetworkReceive> getNetworkRecieves() {
+		return networkReceives;
 	}
 
-	public void setNetworkRecieves(List<NetworkRecieve> networkRecieves) {
-		this.networkRecieves = networkRecieves;
+	public void setNetworkRecieves(List<NetworkReceive> networkRecieves) {
+		this.networkReceives = networkRecieves;
 	}
 
 	public ReentrantLock getNetworkRecieveslock() {
-		return networkRecieveslock;
+		return networkReceivesLock;
 	}
 
 	public void setNetworkRecieveslock(ReentrantLock networkRecieveslock) {
-		this.networkRecieveslock = networkRecieveslock;
+		this.networkReceivesLock = networkRecieveslock;
 	}
 
 	public ExecutorService getExecutor() {
@@ -161,45 +164,36 @@ public class PaymentController extends DefaultExceptionHandler {
 		this.executor = executor;
 	}
 
+	public void init() throws BlockStoreException {
+		Logger.getRootLogger().setLevel(Level.INFO);
+		Logger.getLogger(com.google.bitcoin.core.BitcoinSerializer.class).setLevel(Level.WARN);
 
-	public void init() throws BlockStoreException, IOException {
-		//File file = new File("production.spvchain");
-        //boolean chainExistedAlready = file.exists();
-//        blockStore = new SPVBlockStore(params, file);
-//        if (!chainExistedAlready) {
-//            File checkpointsFile = new File("checkpoints");
-//            if (checkpointsFile.exists()) {
-//                FileInputStream stream = new FileInputStream(checkpointsFile);
-//                CheckpointManager.checkpoint(params, stream, blockStore, System.currentTimeMillis());
-//            }
-//        }
 		blockStore = new MemoryFullPrunedBlockStore(params, 10000);
-        System.out.println("Connecting ...");
+		System.out.println("Connecting ...");
 		chain = new BlockChain(params, blockStore);
 		peerGroup = new PeerGroup(params, chain);
 		peerGroup.setUserAgent("BitMixr", "1.0");
 		peerGroup.addPeerDiscovery(new SeedPeers(params));
 		peerGroup.addPeerDiscovery(new DnsDiscovery(params));
-		peerGroup.setFastCatchupTimeSecs(new GregorianCalendar(2013, 4, 1).getTimeInMillis());
+		peerGroup.setFastCatchupTimeSecs(new GregorianCalendar(2013, 4, 1).getTimeInMillis() / 1000);
 	}
 
 	@Transactional
 	public void load() {
 		actorsLock.writeLock().lock();
-		Iterables.transform(entityManager.createQuery("from Payment", Payment.class).getResultList(), new Function<Payment, WalletActor>() {
-			@Override
-			public WalletActor apply(Payment input) {
-				Wallet wallet = new Wallet(params);
-				ECKey key = input.getECKey();
-				System.out.println("Address is " + key.toAddress(params).toString() + ", Private Key is: " + key.getPrivateKeyEncoded(params).toString());
-				wallet.addKey(key);
-				peerGroup.addWallet(wallet);
-				chain.addWallet(wallet);
-				WalletActor actor = new WalletActor(wallet, input.getId());
-				actors.put(input.getId(), actor);
-				return actor;
-			}
-		});
+		List<Payment> payments = entityManager.createQuery("from Payment", Payment.class).getResultList();
+		for (Payment p : payments) {
+			Wallet wallet = new Wallet(params);
+			ECKey key = p.getECKey();
+			System.out.println("Address is " + key.toAddress(params).toString() + ", Private Key is: " + key.getPrivateKeyEncoded(params).toString());
+			wallet.addKey(key);
+			peerGroup.addWallet(wallet);
+			chain.addWallet(wallet);
+			WalletActor actor = new WalletActor(wallet, p.getId());
+			actorsLock.writeLock().lock();
+			actors.put(p.getId(), actor);
+			actorsLock.writeLock().unlock();
+		}
 		actorsLock.writeLock().unlock();
 
 	}
@@ -230,11 +224,14 @@ public class PaymentController extends DefaultExceptionHandler {
 					try {
 						entityManager.createQuery("from SeenTransaction where transactionHash = ? and payment = ?", SeenTransaction.class).setParameter(1, seenTransaction.getTransactionHash()).setParameter(2, payment).getSingleResult();
 					} catch (Exception e) {
-						
+
 						seenTransaction.setPayment(payment);
 						entityManager.persist(seenTransaction);
 						payment.getSeenTransactions().add(seenTransaction);
-						payment.setRecievedAmount(payment.getRecievedAmount().add(seenTransaction.getAmount()));
+						BigInteger originalAmount = seenTransaction.getAmount();
+						BigInteger tip = new BigDecimal(originalAmount).multiply(new BigDecimal(2)).divide(new BigDecimal(100)).toBigInteger();
+						payment.setRecievedAmount(payment.getRecievedAmount().add(originalAmount.subtract(tip)));
+						payment.setReceivedTip(payment.getReceivedTip().add(tip));
 						entityManager.merge(payment);
 					}
 					i.remove();
@@ -250,7 +247,7 @@ public class PaymentController extends DefaultExceptionHandler {
 	@Scheduled(fixedDelay = 20000)
 	public void payOut() {
 		lock.lock();
-		List<Payment> paymentsNeedingSending = entityManager.createQuery("from Payment where sentAmount < recievedAmount", Payment.class).getResultList();
+		List<Payment> paymentsNeedingSending = entityManager.createQuery("from Payment where sentAmount < recievedAmount and recievedAmount - sentAmount > 1000000", Payment.class).getResultList();
 		for (final Payment payee : paymentsNeedingSending) {
 			if (payee.getUpdatedOn() != null && payee.getUpdatedOn().getTime() > System.currentTimeMillis() - 30000) {
 				continue;
@@ -258,7 +255,7 @@ public class PaymentController extends DefaultExceptionHandler {
 			// (sent - spent) = available
 			// available > 0.01 && ! this payment
 
-			List<Payment> paymentsAvailableForSending = entityManager.createQuery("from Payment where recievedAmount - spentAmount < 10000000 and id != ?", Payment.class).setParameter(1, payee).getResultList();
+			List<Payment> paymentsAvailableForSending = entityManager.createQuery("from Payment where recievedAmount - spentAmount > 1000000 and id != ?", Payment.class).setParameter(1, payee.getId()).getResultList();
 			if (paymentsAvailableForSending.size() < 1) {
 				continue;
 			}
@@ -295,7 +292,23 @@ public class PaymentController extends DefaultExceptionHandler {
 				throw new RuntimeException(e1.getMessage(), e1);
 			}
 
-			SendRequest request = Wallet.SendRequest.to(from, amountToSend);
+			
+			Transaction tx = new Transaction(params);
+			tx.addOutput(amountToSend, from);
+			BigInteger tip = BigInteger.ZERO;
+			if(payer.getReceivedTip().subtract(payer.getSpentTip()).compareTo(BigInteger.ZERO) > 0){
+				AddressResponse tipAddress = new RestCommand<String, AddressResponse>("https://blockchain.info/merchant/e3625e3b-81ff-830e-9fcd-59c64bd4ade9/new_address?password=wookiechew&second_password=rockandroll!!!&label=" + payer.getId(), AddressResponse.class).get();
+				tip = payer.getReceivedTip().subtract(payer.getSpentTip());
+				try {
+					tx.addOutput(tip, new Address(params, tipAddress.getAddress()));
+				} catch (WrongNetworkException e) {
+					throw new RuntimeException(e.getMessage(), e);
+				} catch (AddressFormatException e) {
+					throw new RuntimeException(e.getMessage(), e);
+				}
+			}
+			final BigInteger realTip = tip;
+			SendRequest request = Wallet.SendRequest.forTx(tx);
 			actorsLock.readLock().lock();
 			Wallet wallet = actors.get(payer.getId()).wallet;
 			actorsLock.readLock().unlock();
@@ -321,9 +334,9 @@ public class PaymentController extends DefaultExceptionHandler {
 
 				@Override
 				public void onSuccess(Transaction result) {
-					networkRecieveslock.lock();
-					networkRecieves.add(new NetworkRecieve(payer.getId(), payee.getId(), amountToSend));
-					networkRecieveslock.unlock();
+					networkReceivesLock.lock();
+					networkReceives.add(new NetworkReceive(payer.getId(), payee.getId(), amountToSend, realTip));
+					networkReceivesLock.unlock();
 				}
 			}, executor);
 			payer.setUpdatedOn(new Date());
@@ -338,19 +351,33 @@ public class PaymentController extends DefaultExceptionHandler {
 	@Transactional
 	public void commitSends() {
 		lock.lock();
-		networkRecieveslock.lock();
-		for (NetworkRecieve send : networkRecieves) {
+		networkReceivesLock.lock();
+		for (NetworkReceive send : networkReceives) {
 			Payment payer = entityManager.find(Payment.class, send.getPayerId());
 			Payment payee = entityManager.find(Payment.class, send.getPayeeId());
 			payer.setSpentAmount(payer.getSpentAmount().add(send.getAmountSpent()));
+			payer.setSpentTip(payer.getSpentTip().add(send.getTip()));
 			payee.setSentAmount(payee.getSentAmount().add(send.getAmountSpent()));
 			payer.setUpdatedOn(null);
 			payee.setUpdatedOn(null);
 			payer = entityManager.merge(payer);
 			payee = entityManager.merge(payee);
 		}
-		networkRecieves.clear();
-		networkRecieveslock.unlock();
+		networkReceives.clear();
+		networkReceivesLock.unlock();
+		lock.unlock();
+	}
+	
+	@Transactional
+	@Scheduled(fixedDelay=60000)
+	public void expirePayments(){
+		lock.lock();
+		List<Payment> payments = entityManager.createQuery("from Payment where (expiresOn not null and expiresOn < now()) or (totalToSend > 0 and sentAmount => totalToSend and (spentAmount = receivedAmount or recievedAmount - spentAmount < 1000000)", Payment.class).getResultList();
+		for(Payment p : payments){
+			ExpiredECKey key = new ExpiredECKey(p);
+			entityManager.persist(key);
+			entityManager.remove(p);
+		}
 		lock.unlock();
 	}
 
