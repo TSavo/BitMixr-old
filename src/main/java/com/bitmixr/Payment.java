@@ -34,13 +34,61 @@ public class Payment implements Serializable {
 	private String destinationAddress = null;
 	private BigInteger recievedAmount = BigInteger.ZERO;
 	private BigInteger sentAmount = BigInteger.ZERO;
-	private BigInteger totalToSend;
+	private BigInteger totalToSend = BigInteger.ZERO;
 	@JsonIgnore
 	private BigInteger spentAmount = BigInteger.ZERO;
 	@JsonIgnore
 	private BigInteger receivedTip = BigInteger.ZERO;
 	@JsonIgnore
 	private BigInteger spentTip = BigInteger.ZERO;
+	@JsonIgnore
+	@Temporal(TemporalType.TIMESTAMP)
+	private Date createdOn = new Date();
+	@JsonIgnore
+	@Temporal(TemporalType.TIMESTAMP)
+	private Date updatedOn;
+	@JsonIgnore
+	@Temporal(TemporalType.TIMESTAMP)
+	private Date paidOn;
+	
+	private boolean visible = true;
+
+	@JsonIgnore
+	@OneToMany(cascade = CascadeType.ALL, mappedBy = "payment", fetch = FetchType.EAGER, orphanRemoval = true)
+	Set<SeenTransaction> seenTransactions = new HashSet<>();
+
+	@JsonIgnore
+	@Lob
+	@Basic(fetch = FetchType.EAGER)
+	@Column(name = "privateKey", columnDefinition = "LONGBLOB")
+	byte[] privateKey;
+
+	@JsonIgnore
+	@Lob
+	@Basic(fetch = FetchType.EAGER)
+	@Column(name = "publicKey", columnDefinition = "LONGBLOB")
+	byte[] publicKey;
+
+	public BigInteger getTotalToSend() {
+		return totalToSend;
+	}
+
+	public void setTotalToSend(BigInteger totalToSend) {
+		this.totalToSend = totalToSend;
+	}
+
+	public Date getPaidOn() {
+		return paidOn;
+	}
+
+	public void setPaidOn(Date paidOn) {
+		this.paidOn = paidOn;
+	}
+
+	public Date getUpdatedOn() {
+		return updatedOn;
+	}
+
 	public BigInteger getReceivedTip() {
 		return receivedTip;
 	}
@@ -56,31 +104,6 @@ public class Payment implements Serializable {
 	public void setSpentTip(BigInteger spentTip) {
 		this.spentTip = spentTip;
 	}
-
-	@Temporal(TemporalType.TIMESTAMP)
-	private Date createdOn = new Date();
-	@Temporal(TemporalType.TIMESTAMP)
-	private Date updatedOn;
-	public Date getUpdatedOn() {
-		return updatedOn;
-	}
-
-	private boolean visible = true;
-
-	@OneToMany(cascade = CascadeType.ALL, mappedBy = "payment", fetch = FetchType.EAGER, orphanRemoval = true)
-	Set<SeenTransaction> seenTransactions = new HashSet<>();
-
-	@JsonIgnore
-	@Lob
-	@Basic(fetch = FetchType.EAGER)
-	@Column(name = "privateKey", columnDefinition = "LONGBLOB")
-	byte[] privateKey;
-
-	@JsonIgnore
-	@Lob
-	@Basic(fetch = FetchType.EAGER)
-	@Column(name = "publicKey", columnDefinition = "LONGBLOB")
-	byte[] publicKey;
 
 	public void setSentAmount(BigInteger sentAmount) {
 		this.sentAmount = sentAmount;
@@ -142,6 +165,7 @@ public class Payment implements Serializable {
 		key.setCreationTimeSeconds(getCreatedOn().getTime() / 1000);
 		return key;
 	}
+
 	@JsonIgnore
 	public Set<SeenTransaction> getSeenTransactions() {
 		return seenTransactions;
@@ -150,6 +174,7 @@ public class Payment implements Serializable {
 	public void setSeenTransactions(Set<SeenTransaction> seenTransactions) {
 		this.seenTransactions = seenTransactions;
 	}
+
 	@JsonIgnore
 	public byte[] getPrivateKey() {
 		return privateKey;
@@ -158,6 +183,7 @@ public class Payment implements Serializable {
 	public void setPrivateKey(byte[] privateKey) {
 		this.privateKey = privateKey;
 	}
+
 	@JsonIgnore
 	public byte[] getPublicKey() {
 		return publicKey;
@@ -174,6 +200,7 @@ public class Payment implements Serializable {
 	public void setCreatedOn(Date createdOn) {
 		this.createdOn = createdOn;
 	}
+
 	@JsonIgnore
 	public BigInteger getSpentAmount() {
 		return spentAmount;

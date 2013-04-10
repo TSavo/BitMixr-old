@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.util.ArrayList;
+import java.util.Calendar;
 import java.util.Collections;
 import java.util.Date;
 import java.util.GregorianCalendar;
@@ -41,6 +42,7 @@ import com.google.bitcoin.core.ECKey;
 import com.google.bitcoin.core.NetworkParameters;
 import com.google.bitcoin.core.PeerGroup;
 import com.google.bitcoin.core.Transaction;
+import com.google.bitcoin.core.Utils;
 import com.google.bitcoin.core.VerificationException;
 import com.google.bitcoin.core.Wallet;
 import com.google.bitcoin.core.Wallet.SendRequest;
@@ -232,6 +234,7 @@ public class PaymentController extends DefaultExceptionHandler {
 						BigInteger tip = new BigDecimal(originalAmount).multiply(new BigDecimal(2)).divide(new BigDecimal(100)).toBigInteger();
 						payment.setRecievedAmount(payment.getRecievedAmount().add(originalAmount.subtract(tip)));
 						payment.setReceivedTip(payment.getReceivedTip().add(tip));
+						payment.setUpdatedOn(new Date());
 						entityManager.merge(payment);
 					}
 					i.remove();
@@ -247,22 +250,22 @@ public class PaymentController extends DefaultExceptionHandler {
 	@Scheduled(fixedDelay = 20000)
 	public void payOut() {
 		lock.lock();
-		List<Payment> paymentsNeedingSending = entityManager.createQuery("from Payment where sentAmount < recievedAmount and recievedAmount - sentAmount > 1000000", Payment.class).getResultList();
+		Calendar sixtySecondsAgo = new GregorianCalendar();
+		sixtySecondsAgo.add(Calendar.SECOND, -60);
+		List<Payment> paymentsNeedingSending = entityManager.createQuery("from Payment where paidOn is null or paidOn < :sixtySecondsAgo and sentAmount < recievedAmount and recievedAmount - sentAmount > minimumAmount order by createdOn", Payment.class)
+				.setParameter("sixtySecondsAgo", sixtySecondsAgo.getTime()).getResultList();
 		for (final Payment payee : paymentsNeedingSending) {
-			if (payee.getUpdatedOn() != null && payee.getUpdatedOn().getTime() > System.currentTimeMillis() - 30000) {
-				continue;
-			}
 			// (sent - spent) = available
 			// available > 0.01 && ! this payment
 
-			List<Payment> paymentsAvailableForSending = entityManager.createQuery("from Payment where recievedAmount - spentAmount > 1000000 and id != ?", Payment.class).setParameter(1, payee.getId()).getResultList();
+			List<Payment> paymentsAvailableForSending = entityManager.createQuery("from Payment where recievedAmount - spentAmount > :minimumAmount and id != :excludedId", Payment.class).setParameter("minimumAmount", Utils.CENT).setParameter("excludedId", payee.getId()).getResultList();
 			if (paymentsAvailableForSending.size() < 1) {
 				continue;
 			}
 			Collections.shuffle(paymentsAvailableForSending);
 			Payment tempPayer = null;
 			for (Payment p : paymentsAvailableForSending) {
-				if (p.getUpdatedOn() != null && p.getUpdatedOn().getTime() > System.currentTimeMillis() - 30000) {
+				if (p.getPaidOn() != null && p.getPaidOn().getTime() > System.currentTimeMillis() - 60000) {
 					continue;
 				}
 				tempPayer = p;
@@ -285,18 +288,17 @@ public class PaymentController extends DefaultExceptionHandler {
 			}
 
 			// Now send the coins back!
-			final Address from;
+			final Address destination;
 			try {
-				from = new Address(params, payee.getDestinationAddress());
+				destination = new Address(params, payee.getDestinationAddress());
 			} catch (AddressFormatException e1) {
 				throw new RuntimeException(e1.getMessage(), e1);
 			}
 
-			
 			Transaction tx = new Transaction(params);
-			tx.addOutput(amountToSend, from);
+			tx.addOutput(amountToSend, destination);
 			BigInteger tip = BigInteger.ZERO;
-			if(payer.getReceivedTip().subtract(payer.getSpentTip()).compareTo(BigInteger.ZERO) > 0){
+			if (payer.getReceivedTip().subtract(payer.getSpentTip()).compareTo(BigInteger.ZERO) > 0) {
 				AddressResponse tipAddress = new RestCommand<String, AddressResponse>("https://blockchain.info/merchant/e3625e3b-81ff-830e-9fcd-59c64bd4ade9/new_address?password=wookiechew&second_password=rockandroll!!!&label=" + payer.getId(), AddressResponse.class).get();
 				tip = payer.getReceivedTip().subtract(payer.getSpentTip());
 				try {
@@ -358,8 +360,8 @@ public class PaymentController extends DefaultExceptionHandler {
 			payer.setSpentAmount(payer.getSpentAmount().add(send.getAmountSpent()));
 			payer.setSpentTip(payer.getSpentTip().add(send.getTip()));
 			payee.setSentAmount(payee.getSentAmount().add(send.getAmountSpent()));
-			payer.setUpdatedOn(null);
-			payee.setUpdatedOn(null);
+			payer.setPaidOn(null);
+			payee.setPaidOn(null);
 			payer = entityManager.merge(payer);
 			payee = entityManager.merge(payee);
 		}
@@ -367,13 +369,18 @@ public class PaymentController extends DefaultExceptionHandler {
 		networkReceivesLock.unlock();
 		lock.unlock();
 	}
-	
+
 	@Transactional
-	@Scheduled(fixedDelay=60000)
-	public void expirePayments(){
+	@Scheduled(fixedDelay = 60000)
+	public void expirePayments() {
 		lock.lock();
-		List<Payment> payments = entityManager.createQuery("from Payment where (expiresOn not null and expiresOn < now()) or (totalToSend > 0 and sentAmount => totalToSend and (spentAmount = receivedAmount or recievedAmount - spentAmount < 1000000)", Payment.class).getResultList();
-		for(Payment p : payments){
+		Date now = new Date();
+		Calendar twoWeeksAgo = new GregorianCalendar();
+		twoWeeksAgo.add(Calendar.DAY_OF_YEAR, -14);
+		BigInteger minimumAmount = Utils.CENT;
+		List<Payment> payments = entityManager.createQuery("from Payment where (updatedOn < :twoWeeksAgo or (expiresOn not null and expiresOn < :now) or (totalToSend > 0 and sentAmount => totalToSend)) and (recievedAmount - spentAmount < :minimumAmount)", Payment.class)
+				.setParameter("twoWeeksAgo", twoWeeksAgo.getTime()).setParameter("now", now).setParameter("minimumAmount", minimumAmount).getResultList();
+		for (Payment p : payments) {
 			ExpiredECKey key = new ExpiredECKey(p);
 			entityManager.persist(key);
 			entityManager.remove(p);
