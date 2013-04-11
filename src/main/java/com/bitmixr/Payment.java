@@ -46,7 +46,7 @@ public class Payment implements Serializable {
 	private Date createdOn = new Date();
 	@JsonIgnore
 	@Temporal(TemporalType.TIMESTAMP)
-	private Date updatedOn;
+	private Date updatedOn = new Date();
 	@JsonIgnore
 	@Temporal(TemporalType.TIMESTAMP)
 	private Date paidOn;
