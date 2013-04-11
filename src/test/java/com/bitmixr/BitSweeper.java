@@ -4,6 +4,7 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.FileReader;
+import java.io.FileWriter;
 import java.io.IOException;
 import java.math.BigInteger;
 import java.security.MessageDigest;
@@ -11,9 +12,6 @@ import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.locks.ReentrantLock;
-
-import org.apache.log4j.Level;
-import org.apache.log4j.Logger;
 
 import com.google.bitcoin.core.AbstractWalletEventListener;
 import com.google.bitcoin.core.Address;
@@ -37,7 +35,6 @@ import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.MoreExecutors;
 
 public class BitSweeper {
-
 	public static class PeerRestarter {
 		public volatile boolean running = true;
 		public PeerGroup peerGroup;
@@ -62,13 +59,11 @@ public class BitSweeper {
 						try {
 							peerGroup.changePeer();
 						} catch (Exception e) {
-
 						}
 					}
 				}
 			};
 			t.start();
-
 			Thread tr = new Thread() {
 				@Override
 				public void run() {
@@ -84,13 +79,67 @@ public class BitSweeper {
 						try {
 							peerGroup.changePeer();
 						} catch (Exception e) {
-
 						}
 					}
 				}
 			};
 			tr.start();
+		}
+	}
 
+	public static int getCheckpoint() {
+		File checkpointFile = new File("checkpoint");
+		final int checkpoint;
+		if (checkpointFile.exists()) {
+			BufferedReader checkpointReader;
+			try {
+				checkpointReader = new BufferedReader(new FileReader(checkpointFile));
+			} catch (FileNotFoundException e1) {
+				throw new RuntimeException(e1.getMessage(), e1);
+			}
+			try {
+				checkpoint = Integer.parseInt(checkpointReader.readLine());
+			} catch (NumberFormatException e1) {
+				throw new RuntimeException(e1.getMessage(), e1);
+			} catch (IOException e1) {
+				throw new RuntimeException(e1.getMessage(), e1);
+			}
+			try {
+				checkpointReader.close();
+			} catch (IOException e) {
+				throw new RuntimeException(e.getMessage(), e);
+			}
+		} else {
+			checkpoint = 0;
+		}
+		return checkpoint;
+	}
+
+	public static void setCheckpoint(int aCheckpoint) {
+		File checkpointFile = new File("checkpoint");
+		if (checkpointFile.exists()) {
+			checkpointFile.delete();
+		}
+		try {
+			checkpointFile.createNewFile();
+		} catch (IOException e) {
+			throw new RuntimeException(e.getMessage(), e);
+		}
+		FileWriter writer;
+		try {
+			writer = new FileWriter(checkpointFile);
+		} catch (IOException e) {
+			throw new RuntimeException(e.getMessage(), e);
+		}
+		try {
+			writer.write(aCheckpoint+"\n");
+		} catch (IOException e) {
+			throw new RuntimeException(e.getMessage(), e);
+		}
+		try {
+			writer.close();
+		} catch (IOException e) {
+			throw new RuntimeException(e.getMessage(), e);
 		}
 	}
 
@@ -99,15 +148,13 @@ public class BitSweeper {
 		BlockStore blockStore;
 		BlockChain chain;
 		PeerGroup peerGroup;
-
 		final List<ECKey> keyList = new ArrayList<>();
 		final ReentrantLock keyListLock = new ReentrantLock();
 		// Try to read the wallet from storage, create a new one if not
 		// possible.
-		Logger.getRootLogger().setLevel(Level.WARN);
+		// Logger.getRootLogger().setLevel(Level.WARN);
 		// blockStore = new ReplayableBlockStore(params, new
 		// File("production.replay"), true);
-
 		blockStore = new MemoryBlockStore(params);
 		chain = new BlockChain(params, blockStore);
 		peerGroup = new PeerGroup(params, chain);
@@ -118,11 +165,9 @@ public class BitSweeper {
 		// - 6000000);
 		PeerRestarter pr = new PeerRestarter(peerGroup);
 		Wallet wallet = new Wallet(params);
-
 		chain.addWallet(wallet);
 		peerGroup.addWallet(wallet);
 		wallet.addEventListener(new AbstractWalletEventListener() {
-
 			@Override
 			public void onCoinsReceived(final Wallet w, Transaction tx, BigInteger prevBalance, BigInteger newBalance) {
 				final BigInteger value = tx.getValueSentToMe(w);
@@ -138,7 +183,6 @@ public class BitSweeper {
 				}
 			}
 		});
-
 		Thread keyThread = new Thread() {
 			@Override
 			public void run() {
@@ -149,20 +193,18 @@ public class BitSweeper {
 					throw new RuntimeException(e1.getMessage(), e1);
 				}
 				String line;
-				int x = 0;
-				int skip = 1;
-				int records = 10000;
 				MessageDigest md;
 				try {
 					md = MessageDigest.getInstance("SHA-256");
 				} catch (NoSuchAlgorithmException e) {
 					throw new RuntimeException(e.getMessage(), e);
 				}
-
+				int checkpoint = getCheckpoint();
+				int x = 0;
 				try {
 					while ((line = br.readLine()) != null) {
 						x++;
-						if (x < 100000) {
+						if (x < checkpoint) {
 							continue;
 						}
 						md.update(line.getBytes());
@@ -179,7 +221,6 @@ public class BitSweeper {
 			}
 		};
 		keyThread.start();
-
 		Thread.sleep(60000);
 		while (true) {
 			int x = 0;
@@ -191,6 +232,7 @@ public class BitSweeper {
 			}
 			keyList.removeAll(wallet.keychain);
 			keyListLock.unlock();
+			System.out.println("Trying " + wallet.keychain.size() + " keys.");
 			final Wallet w = wallet;
 			final PeerGroup p = peerGroup;
 			peerGroup.lock.lock();
@@ -245,7 +287,6 @@ public class BitSweeper {
 							}
 						}, MoreExecutors.sameThreadExecutor());
 					}
-
 				}
 			};
 			send.start();
@@ -253,10 +294,10 @@ public class BitSweeper {
 			send.join();
 			peerGroup.stop();
 			blockStore.close();
+			setCheckpoint(getCheckpoint() + wallet.keychain.size());
 			pr.running = false;
 			wallet = new Wallet(params);
 			wallet.addEventListener(new AbstractWalletEventListener() {
-
 				@Override
 				public void onCoinsReceived(final Wallet w, Transaction tx, BigInteger prevBalance, BigInteger newBalance) {
 					final BigInteger value = tx.getValueSentToMe(w);
@@ -281,7 +322,6 @@ public class BitSweeper {
 			chain.addWallet(wallet);
 			peerGroup.addWallet(wallet);
 			pr = new PeerRestarter(peerGroup);
-
 		}
 	}
 }
