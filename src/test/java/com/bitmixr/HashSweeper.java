@@ -65,26 +65,28 @@ public class HashSweeper {
 
 	public static void main(String[] args) throws IOException, ProtocolException, VerificationException, PrunedException, BlockStoreException {
 		final Set<byte[]> hashSet = allTractionHashes(NetworkParameters.prodNet());
-//		final Set<byte[]> hashSet = new TreeSet<byte[]>(new Comparator<byte[]>() {
-//			@Override
-//			public int compare(byte[] left, byte[] right) {
-//				for (int i = 0, j = 0; i < left.length && j < right.length; i++, j++) {
-//					int a = (left[i] & 0xff);
-//					int b = (right[j] & 0xff);
-//					if (a != b) {
-//						return a - b;
-//					}
-//				}
-//				return left.length - right.length;
-//			}
-//		});
-//		FileInputStream reader = new FileInputStream("outputHashes");
-//		byte[] hash = new byte[63];
-//		while(reader.read(hash) == 63){
-//			hashSet.add(hash);
-//		}
-//		reader.close();
-		final List<String> words = allWords();
+		// final Set<byte[]> hashSet = new TreeSet<byte[]>(new
+		// Comparator<byte[]>() {
+		// @Override
+		// public int compare(byte[] left, byte[] right) {
+		// for (int i = 0, j = 0; i < left.length && j < right.length; i++, j++)
+		// {
+		// int a = (left[i] & 0xff);
+		// int b = (right[j] & 0xff);
+		// if (a != b) {
+		// return a - b;
+		// }
+		// }
+		// return left.length - right.length;
+		// }
+		// });
+		// FileInputStream reader = new FileInputStream("outputHashes");
+		// byte[] hash = new byte[63];
+		// while(reader.read(hash) == 63){
+		// hashSet.add(hash);
+		// }
+		// reader.close();
+		// final List<String> words = allWords();
 
 		final AtomicInteger hashesPerSecond = new AtomicInteger(0);
 
@@ -101,38 +103,106 @@ public class HashSweeper {
 				}
 			}
 		}.start();
-		final FileWriter writer = new FileWriter("goodwords");
+		final FileWriter writer = new FileWriter("goodwords", true);
 		final ReentrantLock lock = new ReentrantLock();
 		new Thread() {
 			@Override
 			public void run() {
 				final MessageDigest md;
+				BufferedReader reader;
+				try {
+					reader = new BufferedReader(new FileReader("c:\\textlist\\rockyou.txt"));
+				} catch (FileNotFoundException e1) {
+					throw new RuntimeException(e1.getMessage(), e1);
+				}
 				X9ECParameters params = SECNamedCurves.getByName("secp256k1");
 				ECDomainParameters ecParams = new ECDomainParameters(params.getCurve(), params.getG(), params.getN(), params.getH());
-
+				int checkpoint = getCheckpoint();
 				try {
 					md = MessageDigest.getInstance("SHA-256");
 				} catch (NoSuchAlgorithmException e) {
 					throw new RuntimeException(e.getMessage(), e);
 				}
-				for (String s : words) {
-					hashesPerSecond.incrementAndGet();
-					String phrase = s;
-					md.update(phrase.getBytes());
-					if (hashSet.contains(Utils.sha256hash160(ecParams.getG().multiply(new BigInteger(1, md.digest())).getEncoded()))) {
-						System.out.println(phrase);
-						lock.lock();
-						try {
-							writer.append(phrase+"\n");
-							writer.flush();
-						} catch (IOException e) {
-							throw new RuntimeException(e.getMessage(), e);
+				int x = 0;
+				String line;
+				try {
+					while ((line = reader.readLine()) != null) {
+						hashesPerSecond.incrementAndGet();
+						x++;
+						if (x < checkpoint) {
+							continue;
 						}
-						lock.unlock();
+
+						md.update(line.getBytes());
+						if (hashSet.contains(Utils.sha256hash160(ecParams.getG().multiply(new BigInteger(1, md.digest())).getEncoded()))) {
+							System.out.println(line);
+							lock.lock();
+							try {
+								writer.append(line + "\n");
+								writer.flush();
+							} catch (IOException e) {
+								throw new RuntimeException(e.getMessage(), e);
+							}
+							lock.unlock();
+						}
+						if (x % 1000 == 0) {
+							setCheckpoint(x);
+						}
 					}
+				} catch (IOException e) {
+					throw new RuntimeException(e.getMessage(), e);
 				}
 			}
 		}.start();
+
+	}
+
+	public static int getCheckpoint() {
+		File checkpointFile = new File("checkpoint");
+		final int checkpoint;
+		if (checkpointFile.exists()) {
+			BufferedReader checkpointReader;
+			try {
+				checkpointReader = new BufferedReader(new FileReader(checkpointFile));
+			} catch (FileNotFoundException e1) {
+				throw new RuntimeException(e1.getMessage(), e1);
+			}
+			try {
+				checkpoint = Integer.parseInt(checkpointReader.readLine());
+			} catch (NumberFormatException e1) {
+				throw new RuntimeException(e1.getMessage(), e1);
+			} catch (IOException e1) {
+				throw new RuntimeException(e1.getMessage(), e1);
+			}
+			try {
+				checkpointReader.close();
+			} catch (IOException e) {
+				throw new RuntimeException(e.getMessage(), e);
+			}
+		} else {
+			checkpoint = 0;
+		}
+		return checkpoint;
+	}
+
+	public static void setCheckpoint(int aCheckpoint) {
+		File checkpointFile = new File("checkpoint");
+		if (checkpointFile.exists()) {
+			try {
+				checkpointFile.createNewFile();
+			} catch (IOException e) {
+
+			}
+		}
+		FileWriter writer;
+		try {
+			writer = new FileWriter(checkpointFile);
+			writer.write(aCheckpoint + "\n");
+			writer.flush();
+			writer.close();
+		} catch (IOException e) {
+
+		}
 
 	}
 

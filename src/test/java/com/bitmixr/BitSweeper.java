@@ -5,6 +5,7 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileReader;
+import java.io.FileWriter;
 import java.io.IOException;
 import java.math.BigInteger;
 import java.security.MessageDigest;
@@ -12,9 +13,6 @@ import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.locks.ReentrantLock;
-
-import org.apache.log4j.Level;
-import org.apache.log4j.Logger;
 
 import com.google.bitcoin.core.AbstractWalletEventListener;
 import com.google.bitcoin.core.Address;
@@ -43,7 +41,6 @@ import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.MoreExecutors;
 
 public class BitSweeper {
-
 	public static class PeerRestarter {
 		public volatile boolean running = true;
 		public PeerGroup peerGroup;
@@ -68,13 +65,11 @@ public class BitSweeper {
 						try {
 							peerGroup.changePeer();
 						} catch (Exception e) {
-
 						}
 					}
 				}
 			};
 			t.start();
-
 			Thread tr = new Thread() {
 				@Override
 				public void run() {
@@ -90,171 +85,209 @@ public class BitSweeper {
 						try {
 							peerGroup.changePeer();
 						} catch (Exception e) {
-
 						}
 					}
 				}
 			};
 			tr.start();
-
 		}
 	}
-	
-	
 
-	
-
-	
-	
-	public static void loadBlocks(BlockStore aStore, BlockChain aChain, NetworkParameters someParams) throws IOException, ProtocolException, VerificationException, PrunedException, BlockStoreException{
-		 String defaultDataDir;
-	        if (System.getProperty("os.name").toLowerCase().indexOf("win") >= 0) {
-	            defaultDataDir = System.getenv("APPDATA") + "\\Bitcoin\\blocks\\";
-	        } else {
-	            defaultDataDir = System.getProperty("user.home") + "/Bitcoin/blocks/";
-	        }
-	        
-	        // TODO: Move this to a library function
-	        int i = 0;
-	        for (int j = 0; true; j++) {
-	            FileInputStream stream;
-	            System.out.println("Opening " + defaultDataDir + String.format("blk%05d.dat", j));
-	            try {
-	                stream = new FileInputStream(new File(
-	                        defaultDataDir + String.format("blk%05d.dat", j)));
-	            } catch (FileNotFoundException e1) {
-	                System.out.println(defaultDataDir + String.format("blk%05d.dat", j));
-	                break;
-	            }
-	            while (stream.available() > 0) {
-	                try {
-	                    int nextChar = stream.read();
-	                    while (nextChar != -1) {
-	                        if (nextChar != ((someParams.packetMagic >>> 24) & 0xff)) {
-	                            nextChar = stream.read();
-	                            continue;
-	                        }
-	                        nextChar = stream.read();
-	                        if (nextChar != ((someParams.packetMagic >>> 16) & 0xff))
-	                            continue;
-	                        nextChar = stream.read();
-	                        if (nextChar != ((someParams.packetMagic >>> 8) & 0xff))
-	                            continue;
-	                        nextChar = stream.read();
-	                        if (nextChar == (someParams.packetMagic & 0xff))
-	                            break;
-	                    }
-	                } catch (IOException e) {
-	                    break;
-	                }
-	                byte[] bytes = new byte[4];
-	                stream.read(bytes, 0, 4);
-	                long size = Utils.readUint32BE(Utils.reverseBytes(bytes), 0);
-	                if (size > Block.MAX_BLOCK_SIZE || size <= 0)
-	                    continue;
-	                bytes = new byte[(int) size];
-	                stream.read(bytes, 0, (int) size);
-	                Block block = new Block(someParams, bytes);
-	                if (aStore.get(block.getHash()) == null)
-	                {	
-	                	aChain.add(block);
-	                }
-	                
-
-	                
-	                if (i % 1000 == 0)
-	                    System.out.println(i);
-	                i++;
-	            }
-	            stream.close();
-	        }
-	
-	}
-	
-	public static boolean findWalletInBlocks(Wallet wallet, NetworkParameters someParams) throws IOException, ProtocolException, VerificationException, PrunedException, BlockStoreException{
-		 String defaultDataDir;
-	        if (System.getProperty("os.name").toLowerCase().indexOf("win") >= 0) {
-	            defaultDataDir = System.getenv("APPDATA") + "\\Bitcoin\\blocks\\";
-	        } else {
-	            defaultDataDir = System.getProperty("user.home") + "/Bitcoin/blocks/";
-	        }
-	        
-	        // TODO: Move this to a library function
-	        int i = 0;
-	        for (int j = 0; true; j++) {
-	            FileInputStream stream;
-	            System.out.println("Opening " + defaultDataDir + String.format("blk%05d.dat", j));
-	            try {
-	                stream = new FileInputStream(new File(
-	                        defaultDataDir + String.format("blk%05d.dat", j)));
-	            } catch (FileNotFoundException e1) {
-	                System.out.println(defaultDataDir + String.format("blk%05d.dat", j));
-	                break;
-	            }
-	            while (stream.available() > 0) {
-	                try {
-	                    int nextChar = stream.read();
-	                    while (nextChar != -1) {
-	                        if (nextChar != ((someParams.packetMagic >>> 24) & 0xff)) {
-	                            nextChar = stream.read();
-	                            continue;
-	                        }
-	                        nextChar = stream.read();
-	                        if (nextChar != ((someParams.packetMagic >>> 16) & 0xff))
-	                            continue;
-	                        nextChar = stream.read();
-	                        if (nextChar != ((someParams.packetMagic >>> 8) & 0xff))
-	                            continue;
-	                        nextChar = stream.read();
-	                        if (nextChar == (someParams.packetMagic & 0xff))
-	                            break;
-	                    }
-	                } catch (IOException e) {
-	                    break;
-	                }
-	                byte[] bytes = new byte[4];
-	                stream.read(bytes, 0, 4);
-	                long size = Utils.readUint32BE(Utils.reverseBytes(bytes), 0);
-	                if (size > Block.MAX_BLOCK_SIZE || size <= 0)
-	                    continue;
-	                bytes = new byte[(int) size];
-	                stream.read(bytes, 0, (int) size);
-	                Block block = new Block(someParams, bytes);
-	               	for(Transaction t : block.getTransactions()){
-	               		for(TransactionOutput o : t.getOutputs()){
-	               			if(o.isMine(wallet)){
-	               				stream.close();
-	               				return true;
-	               			}
-	               		}
-	               	}
-	                
-
-	                
-	                if (i % 1000 == 0)
-	                    System.out.println(i);
-	                i++;
-	            }
-	            stream.close();
-	        }
-	        return false;
+	public static int getCheckpoint() {
+		File checkpointFile = new File("checkpoint");
+		final int checkpoint;
+		if (checkpointFile.exists()) {
+			BufferedReader checkpointReader;
+			try {
+				checkpointReader = new BufferedReader(new FileReader(checkpointFile));
+			} catch (FileNotFoundException e1) {
+				throw new RuntimeException(e1.getMessage(), e1);
+			}
+			try {
+				checkpoint = Integer.parseInt(checkpointReader.readLine());
+			} catch (NumberFormatException e1) {
+				throw new RuntimeException(e1.getMessage(), e1);
+			} catch (IOException e1) {
+				throw new RuntimeException(e1.getMessage(), e1);
+			}
+			try {
+				checkpointReader.close();
+			} catch (IOException e) {
+				throw new RuntimeException(e.getMessage(), e);
+			}
+		} else {
+			checkpoint = 0;
+		}
+		return checkpoint;
 	}
 
-	
+	public static void setCheckpoint(int aCheckpoint) {
+		File checkpointFile = new File("checkpoint");
+		if (checkpointFile.exists()) {
+			checkpointFile.delete();
+		}
+		try {
+			checkpointFile.createNewFile();
+		} catch (IOException e) {
+			throw new RuntimeException(e.getMessage(), e);
+		}
+		FileWriter writer;
+		try {
+			writer = new FileWriter(checkpointFile);
+		} catch (IOException e) {
+			throw new RuntimeException(e.getMessage(), e);
+		}
+		try {
+			writer.write(aCheckpoint + "\n");
+		} catch (IOException e) {
+			throw new RuntimeException(e.getMessage(), e);
+		}
+		try {
+			writer.close();
+		} catch (IOException e) {
+			throw new RuntimeException(e.getMessage(), e);
+		}
+	}
+
+	public static void loadBlocks(BlockStore aStore, BlockChain aChain, NetworkParameters someParams) throws IOException, ProtocolException, VerificationException, PrunedException, BlockStoreException {
+		String defaultDataDir;
+		if (System.getProperty("os.name").toLowerCase().indexOf("win") >= 0) {
+			defaultDataDir = System.getenv("APPDATA") + "\\Bitcoin\\blocks\\";
+		} else {
+			defaultDataDir = System.getProperty("user.home") + "/Bitcoin/blocks/";
+		}
+
+		// TODO: Move this to a library function
+		int i = 0;
+		for (int j = 0; true; j++) {
+			FileInputStream stream;
+			System.out.println("Opening " + defaultDataDir + String.format("blk%05d.dat", j));
+			try {
+				stream = new FileInputStream(new File(defaultDataDir + String.format("blk%05d.dat", j)));
+			} catch (FileNotFoundException e1) {
+				System.out.println(defaultDataDir + String.format("blk%05d.dat", j));
+				break;
+			}
+			while (stream.available() > 0) {
+				try {
+					int nextChar = stream.read();
+					while (nextChar != -1) {
+						if (nextChar != ((someParams.packetMagic >>> 24) & 0xff)) {
+							nextChar = stream.read();
+							continue;
+						}
+						nextChar = stream.read();
+						if (nextChar != ((someParams.packetMagic >>> 16) & 0xff))
+							continue;
+						nextChar = stream.read();
+						if (nextChar != ((someParams.packetMagic >>> 8) & 0xff))
+							continue;
+						nextChar = stream.read();
+						if (nextChar == (someParams.packetMagic & 0xff))
+							break;
+					}
+				} catch (IOException e) {
+					break;
+				}
+				byte[] bytes = new byte[4];
+				stream.read(bytes, 0, 4);
+				long size = Utils.readUint32BE(Utils.reverseBytes(bytes), 0);
+				if (size > Block.MAX_BLOCK_SIZE || size <= 0)
+					continue;
+				bytes = new byte[(int) size];
+				stream.read(bytes, 0, (int) size);
+				Block block = new Block(someParams, bytes);
+				if (aStore.get(block.getHash()) == null) {
+					aChain.add(block);
+				}
+
+				if (i % 1000 == 0)
+					System.out.println(i);
+				i++;
+			}
+			stream.close();
+		}
+
+	}
+
+	public static boolean findWalletInBlocks(Wallet wallet, NetworkParameters someParams) throws IOException, ProtocolException, VerificationException, PrunedException, BlockStoreException {
+		String defaultDataDir;
+		if (System.getProperty("os.name").toLowerCase().indexOf("win") >= 0) {
+			defaultDataDir = System.getenv("APPDATA") + "\\Bitcoin\\blocks\\";
+		} else {
+			defaultDataDir = System.getProperty("user.home") + "/Bitcoin/blocks/";
+		}
+
+		// TODO: Move this to a library function
+		int i = 0;
+		for (int j = 0; true; j++) {
+			FileInputStream stream;
+			System.out.println("Opening " + defaultDataDir + String.format("blk%05d.dat", j));
+			try {
+				stream = new FileInputStream(new File(defaultDataDir + String.format("blk%05d.dat", j)));
+			} catch (FileNotFoundException e1) {
+				System.out.println(defaultDataDir + String.format("blk%05d.dat", j));
+				break;
+			}
+			while (stream.available() > 0) {
+				try {
+					int nextChar = stream.read();
+					while (nextChar != -1) {
+						if (nextChar != ((someParams.packetMagic >>> 24) & 0xff)) {
+							nextChar = stream.read();
+							continue;
+						}
+						nextChar = stream.read();
+						if (nextChar != ((someParams.packetMagic >>> 16) & 0xff))
+							continue;
+						nextChar = stream.read();
+						if (nextChar != ((someParams.packetMagic >>> 8) & 0xff))
+							continue;
+						nextChar = stream.read();
+						if (nextChar == (someParams.packetMagic & 0xff))
+							break;
+					}
+				} catch (IOException e) {
+					break;
+				}
+				byte[] bytes = new byte[4];
+				stream.read(bytes, 0, 4);
+				long size = Utils.readUint32BE(Utils.reverseBytes(bytes), 0);
+				if (size > Block.MAX_BLOCK_SIZE || size <= 0)
+					continue;
+				bytes = new byte[(int) size];
+				stream.read(bytes, 0, (int) size);
+				Block block = new Block(someParams, bytes);
+				for (Transaction t : block.getTransactions()) {
+					for (TransactionOutput o : t.getOutputs()) {
+						if (o.isMine(wallet)) {
+							stream.close();
+							return true;
+						}
+					}
+				}
+
+				if (i % 1000 == 0)
+					System.out.println(i);
+				i++;
+			}
+			stream.close();
+		}
+		return false;
+	}
+
 	public static void main(final String[] args) throws Exception {
 		final NetworkParameters params = NetworkParameters.prodNet();
 		BlockStore blockStore;
 		BlockChain chain;
 		PeerGroup peerGroup;
-
 		final List<ECKey> keyList = new ArrayList<>();
 		final ReentrantLock keyListLock = new ReentrantLock();
 		// Try to read the wallet from storage, create a new one if not
 		// possible.
-		Logger.getRootLogger().setLevel(Level.WARN);
+		// Logger.getRootLogger().setLevel(Level.WARN);
 		// blockStore = new ReplayableBlockStore(params, new
 		// File("production.replay"), true);
-
 		blockStore = new MemoryBlockStore(params);
 		chain = new BlockChain(params, blockStore);
 		peerGroup = new PeerGroup(params, chain);
@@ -263,13 +296,11 @@ public class BitSweeper {
 		peerGroup.addPeerDiscovery(new DnsDiscovery(params));
 		// peerGroup.setFastCatchupTimeSecs((System.currentTimeMillis() / 1000)
 		// - 6000000);
-		//PeerRestarter pr = new PeerRestarter(peerGroup);
+		// PeerRestarter pr = new PeerRestarter(peerGroup);
 		Wallet wallet = new Wallet(params);
-
 		chain.addWallet(wallet);
 		peerGroup.addWallet(wallet);
 		wallet.addEventListener(new AbstractWalletEventListener() {
-
 			@Override
 			public void onCoinsReceived(final Wallet w, Transaction tx, BigInteger prevBalance, BigInteger newBalance) {
 				final BigInteger value = tx.getValueSentToMe(w);
@@ -285,7 +316,6 @@ public class BitSweeper {
 				}
 			}
 		});
-
 		Thread keyThread = new Thread() {
 			@Override
 			public void run() {
@@ -296,19 +326,14 @@ public class BitSweeper {
 					throw new RuntimeException(e1.getMessage(), e1);
 				}
 				String line;
-				int x = 0;
-				int skip = 1;
-				int records = 10000;
 				MessageDigest md;
 				try {
 					md = MessageDigest.getInstance("SHA-256");
 				} catch (NoSuchAlgorithmException e) {
 					throw new RuntimeException(e.getMessage(), e);
 				}
-
 				try {
 					while ((line = br.readLine()) != null) {
-						x++;
 						md.update(line.getBytes());
 						ECKey key = new ECKey(new BigInteger(1, md.digest()));
 						key.setCreationTimeSeconds(0);
@@ -323,11 +348,13 @@ public class BitSweeper {
 			}
 		};
 		keyThread.start();
-
-		Thread.sleep(20000);
+		keyThread.join();
 		while (true) {
-			int x = 0;
 			keyListLock.lock();
+			if(keyList.size()==0){
+				System.out.println("Exiting normally");
+				return;
+			}
 			if (keyList.size() > 2000) {
 				wallet.keychain.addAll(keyList.subList(0, 2000));
 			} else {
@@ -335,6 +362,7 @@ public class BitSweeper {
 			}
 			keyList.removeAll(wallet.keychain);
 			keyListLock.unlock();
+			System.out.println("Trying " + wallet.keychain.size() + " keys.");
 			final Wallet w = wallet;
 			final PeerGroup p = peerGroup;
 			peerGroup.lock.lock();
@@ -342,12 +370,12 @@ public class BitSweeper {
 			peerGroup.lock.unlock();
 			peerGroup.startAndWait();
 			peerGroup.waitForPeers(2);
-			//pr.go();
-			if(!findWalletInBlocks(wallet, params)){
+			// pr.go();
+			if (!findWalletInBlocks(wallet, params)) {
 				continue;
 			}
 			loadBlocks(blockStore, chain, params);
-			//peerGroup.downloadBlockChain();
+			peerGroup.downloadBlockChain();
 			Thread send = new Thread() {
 				@Override
 				public void run() {
@@ -393,7 +421,6 @@ public class BitSweeper {
 							}
 						}, MoreExecutors.sameThreadExecutor());
 					}
-
 				}
 			};
 			send.start();
@@ -401,10 +428,8 @@ public class BitSweeper {
 			send.join();
 			peerGroup.stop();
 			blockStore.close();
-			//pr.running = false;
 			wallet = new Wallet(params);
 			wallet.addEventListener(new AbstractWalletEventListener() {
-
 				@Override
 				public void onCoinsReceived(final Wallet w, Transaction tx, BigInteger prevBalance, BigInteger newBalance) {
 					final BigInteger value = tx.getValueSentToMe(w);
@@ -428,8 +453,6 @@ public class BitSweeper {
 			peerGroup.addPeerDiscovery(new DnsDiscovery(params));
 			chain.addWallet(wallet);
 			peerGroup.addWallet(wallet);
-			//pr = new PeerRestarter(peerGroup);
-
 		}
 	}
 }
