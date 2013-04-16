@@ -11,7 +11,7 @@ import org.springframework.web.bind.annotation.ResponseBody;
 abstract public class DefaultExceptionHandler {
 	final static Logger logger = LoggerFactory.getLogger(DefaultExceptionHandler.class);
 
-	private JSONException statusAndLog(final Exception anException, final HttpServletResponse aResponse, final int aStatus) {
+	private static JSONException statusAndLog(final Exception anException, final HttpServletResponse aResponse, final int aStatus) {
 		aResponse.setStatus(aStatus);
 		if (logger.isDebugEnabled()) {
 			logger.debug(ExceptionUtils.getFullStackTrace(anException));
