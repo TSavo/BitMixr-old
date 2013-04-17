@@ -14,7 +14,7 @@ abstract public class DefaultExceptionHandler {
 	private static JSONException statusAndLog(final Exception anException, final HttpServletResponse aResponse, final int aStatus) {
 		aResponse.setStatus(aStatus);
 		if (logger.isDebugEnabled()) {
-			logger.debug(ExceptionUtils.getFullStackTrace(anException));
+			logger.debug(ExceptionUtils.getStackTrace(anException));
 		}
 		return new JSONException(anException);
 	}

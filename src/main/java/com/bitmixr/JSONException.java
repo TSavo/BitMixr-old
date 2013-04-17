@@ -22,7 +22,7 @@ public class JSONException implements Serializable{
 			this.cause=new JSONException(aThrowable.getCause());
 		}
 		this.stackTraceElement=Arrays.asList(aThrowable.getStackTrace());
-		logger.error(ExceptionUtils.getFullStackTrace(aThrowable));
+		logger.error(ExceptionUtils.getStackTrace(aThrowable));
 	}
 
 	public List<StackTraceElement> getStackTraceElement() {

@@ -21,6 +21,7 @@ import javax.persistence.EntityManager;
 import javax.persistence.PersistenceContext;
 
 import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.cpn.apiomatic.rest.RestCommand;
@@ -44,6 +45,7 @@ import com.google.bitcoin.store.MemoryFullPrunedBlockStore;
 import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
 
+@Service
 public class BitMixrService {
 
 	@PersistenceContext
@@ -154,7 +156,7 @@ public class BitMixrService {
 	}
 
 	public void init() throws BlockStoreException {
-		blockStore = new MemoryFullPrunedBlockStore(params, 10000);
+		blockStore = new MemoryFullPrunedBlockStore(params, 500);
 		chain = new BlockChain(params, blockStore);
 		peerGroup = new PeerGroup(params, chain);
 		peerGroup.setUserAgent("BitMixr", "1.0");
@@ -262,7 +264,7 @@ public class BitMixrService {
 		lock.lock();
 		Calendar sixtySecondsAgo = new GregorianCalendar();
 		sixtySecondsAgo.add(Calendar.SECOND, -60);
-		List<Payment> paymentsNeedingSending = entityManager.createQuery("from Payment where (paidOn is null or paidOn < :sixtySecondsAgo) and sentAmount < recievedAmount and recievedAmount - sentAmount > minimumAmount order by createdOn", Payment.class)
+		List<Payment> paymentsNeedingSending = entityManager.createQuery("from Payment where (paidOn is null or paidOn < :sixtySecondsAgo) and sentAmount < recievedAmount and recievedAmount - sentAmount > :minimumAmount order by createdOn", Payment.class).setParameter("minimumAmount", Utils.CENT)
 				.setParameter("sixtySecondsAgo", sixtySecondsAgo.getTime()).getResultList();
 		for (final Payment payee : paymentsNeedingSending) {
 			List<Payment> paymentsAvailableForSending = entityManager.createQuery("from Payment where (paidOn is null or paidOn < :sixtySecondsAgo) and recievedAmount - spentAmount > :minimumAmount and id != :excludedId", Payment.class).setParameter("minimumAmount", Utils.CENT).setParameter("excludedId", payee.getId()).setParameter("sixtySecondsAgo", sixtySecondsAgo).getResultList();
@@ -383,7 +385,7 @@ public class BitMixrService {
 		Calendar twoWeeksAgo = new GregorianCalendar();
 		twoWeeksAgo.add(Calendar.DAY_OF_YEAR, -14);
 		BigInteger minimumAmount = Utils.CENT;
-		List<Payment> payments = entityManager.createQuery("from Payment where (updatedOn < :twoWeeksAgo or (expiresOn not null and expiresOn < :now) or (totalToSend > 0 and sentAmount => totalToSend)) and (recievedAmount - spentAmount < :minimumAmount)", Payment.class)
+		List<Payment> payments = entityManager.createQuery("from Payment where (updatedOn < :twoWeeksAgo or (expiresOn is not null and expiresOn < :now)) or (totalToSend > 0 and sentAmount >= totalToSend and recievedAmount - spentAmount < :minimumAmount)", Payment.class)
 				.setParameter("twoWeeksAgo", twoWeeksAgo.getTime()).setParameter("now", now).setParameter("minimumAmount", minimumAmount).getResultList();
 		for (Payment p : payments) {
 			ExpiredECKey key = new ExpiredECKey(p);
